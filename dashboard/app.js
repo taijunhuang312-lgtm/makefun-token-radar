@@ -8,6 +8,8 @@
   if (!DATA) return;
   var app = document.getElementById('board');
   var state = { q: '', category: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  var WATCHLIST = {};
+  (DATA.watchlist || []).forEach(function (s) { WATCHLIST[s] = true; });
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -168,7 +170,8 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. Implied value is a model, not a promise.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL that records no token. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. Implied value is an estimate, never a price.' }),
+        el('p', { class: 'method-line', text: 'implied = TVL × category multiple × growth × maturity. The multiple is the median market-cap-to-TVL ratio of the category’s live-token protocols in this same snapshot — the full calibration table is below the board.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -229,7 +232,10 @@
       },
         el('td', { class: 'num', text: String(r.rank) }),
         el('td', null, el('div', { class: 'name' },
-          el('b', { text: r.name }),
+          el('div', { class: 'name-top' },
+            el('b', { text: r.name }),
+            WATCHLIST[r.slug] ? el('span', { class: 'chip', text: 'Watchlist' }) : null
+          ),
           el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') })
         )),
         el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
@@ -238,14 +244,13 @@
         el('td', null, el('div', { class: 'implied' },
           el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
           el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) })
-        )),
-        el('td', null, el('span', { class: 'status', text: 'no token' }))
+        ))
       );
       tbody.appendChild(tr);
     });
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
-        el('table', null,
+        el('table', { class: 'board-table' },
           el('caption', { class: 'sub', text: 'Pre-token protocols, strongest implied value first. Select a row for its model and farm plan.' }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
@@ -253,8 +258,7 @@
             sortHeader('tvl', 'TVL'),
             sortHeader('growth', '7d'),
             sortHeader('age', 'Age'),
-            sortHeader('implied', 'Implied value'),
-            el('th', { scope: 'col', text: 'Token' })
+            sortHeader('implied', 'Implied value')
           )),
           tbody
         )
@@ -266,7 +270,6 @@
     var tbody = el('tbody');
     DATA.live.forEach(function (r) {
       tbody.appendChild(el('tr', null,
-        el('td', { class: 'num', text: 'live' }),
         el('td', null, el('div', { class: 'name' }, el('b', { text: r.name }), el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') }))),
         el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
         el('td', { class: 'num ' + (r.change_7d !== null && r.change_7d >= 0 ? 'pos' : 'neg'), text: fmtPct(r.change_7d) }),
@@ -276,28 +279,69 @@
     });
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
-        el('table', null,
+        el('table', { class: 'live-table' },
           el('caption', { class: 'sub', text: 'Token live: these protocols already trade, so their market cap is a fact, not a model. They are set aside from the pre-token ranking.' }),
-          el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Status' }), el('th', { scope: 'col', text: 'Protocol' }), el('th', { scope: 'col', text: 'TVL' }), el('th', { scope: 'col', text: '7d' }), el('th', { scope: 'col', text: 'Market cap' }), el('th', { scope: 'col', text: 'Token' }))),
+          el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Protocol' }), el('th', { scope: 'col', text: 'TVL' }), el('th', { scope: 'col', text: '7d' }), el('th', { scope: 'col', text: 'Market cap' }), el('th', { scope: 'col', text: 'Token' }))),
           tbody
         )
       )
     );
   }
 
+  function calibrationTable() {
+    var cal = DATA.calibration;
+    var m = DATA.model;
+    var entries = Object.keys(cal.by_category).map(function (name) {
+      var c = cal.by_category[name];
+      var used = c.comparables >= m.min_comparables || (c.comparables === 2 && c.max_ratio / c.min_ratio <= m.agreement_factor);
+      var eff = used ? Math.min(m.multiple_cap, Math.max(m.multiple_floor, c.multiple)) : null;
+      var note = !used ? 'global' : eff < c.multiple ? 'cap ' + eff : eff > c.multiple ? 'floor ' + eff : 'used';
+      return { name: name, median: c.multiple, n: c.comparables, note: note };
+    }).sort(function (a, b) { return b.median - a.median; });
+    var half = Math.ceil(entries.length / 2);
+    function oneTable(list) {
+      var tb = el('tbody');
+      list.forEach(function (e) {
+        tb.appendChild(el('tr', null,
+          el('td', { text: e.name }),
+          el('td', { class: 'num', text: e.median.toFixed(4) }),
+          el('td', { class: 'num', text: String(e.n) }),
+          el('td', { class: 'sub', text: e.note })
+        ));
+      });
+      return el('table', { class: 'cal' },
+        el('thead', null, el('tr', null,
+          el('th', { scope: 'col', text: 'Category' }),
+          el('th', { scope: 'col', text: 'Median' }),
+          el('th', { scope: 'col', text: 'n' }),
+          el('th', { scope: 'col', text: 'Multiple used' })
+        )),
+        tb
+      );
+    }
+    return el('div', { class: 'cal-wrap' },
+      el('div', { class: 'cal-head' },
+        el('span', { text: 'Global median ' + cal.global_multiple + ' across ' + cal.global_comparables + ' live-token protocols' }),
+        el('span', { class: 'sub', text: 'A category with no usable median falls back to the global one.' })
+      ),
+      el('div', { class: 'cal-cols' }, oneTable(entries.slice(0, half)), oneTable(entries.slice(half)))
+    );
+  }
+
   function modelPanel() {
     var m = DATA.model;
     var cal = DATA.calibration;
-    var globalLine = cal
-      ? 'The category multiple is the median market-cap-to-TVL ratio of that category\'s live-token protocols in this same snapshot (at least ' + m.min_comparables + ' comparables, or two that agree within an order of magnitude; otherwise the global median ' + cal.global_multiple + ' across ' + cal.global_comparables + ' live-token protocols), clamped to ' + m.multiple_floor + '–' + m.multiple_cap + '.'
-      : 'The category multiple is the median market-cap-to-TVL ratio of that category\'s live-token protocols in this same snapshot.';
+    var globalLine = 'The category multiple is the median market-cap-to-TVL ratio of that category’s live-token protocols in this same snapshot (at least ' + m.min_comparables + ' comparables, or two that agree within an order of magnitude; otherwise the global median ' + cal.global_multiple + ' across ' + cal.global_comparables + ' live-token protocols), clamped to ' + m.multiple_floor + '–' + m.multiple_cap + '.';
     return el('section', { class: 'panel model' },
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
         'implied = round( tvl_usd x category multiple x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )'
       ),
-      el('p', { class: 'sub', text: globalLine + ' TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: globalLine + ' TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token recorded; an unlisted age uses ' + m.unknown_age_days + ' days. A seven-day growth the snapshot does not report counts as 0.' }),
+      el('h3', { text: 'Calibration — median market-cap-to-TVL by category' }),
+      calibrationTable(),
+      el('p', { class: 'sub', text: 'Snapshot ' + DATA.as_of + ', DefiLlama protocol index. The median is used, not the mean: the mean ratio across the comparables is 4.48, driven by a handful of stale records, and the mean would be absurd. No size taper is applied — the size effect was tested and is inconsistent within categories, so a blanket taper would be a fudge. Implied value is an estimate, never a price: it says what a token would be worth if the protocol’s record stayed as it is, and it does not predict whether or when a token launches. The top rows rest on the global median — Risk Curators has a single live comparable, an oracle token — so read the largest values as the fallback speaking, not a category finding. The snapshot is one day; a protocol’s record may have moved since.' })
     );
   }
 
@@ -325,7 +369,7 @@
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
         el('div', null, el('span', { text: 'Category multiple' }), el('b', { class: 'num', text: String(row.base_multiple) + (row.multiple_source === 'category' ? ' — median of ' + row.comparables + ' live ' + (row.category || 'Other') + ' tokens' : ' — global median of ' + row.comparables + ' live tokens') })),
         el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
-        el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
+        el('div', null, el('span', { text: 'Age with no token recorded' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),
         el('div', null, el('span', { text: 'Maturity multiplier' }), el('b', { class: 'num', text: String(row.maturity_multiplier) })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
