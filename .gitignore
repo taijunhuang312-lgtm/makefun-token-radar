@@ -1,0 +1,4 @@
+# Generated output from local runs (never part of the entry).
+out/
+out2/
+*.log
