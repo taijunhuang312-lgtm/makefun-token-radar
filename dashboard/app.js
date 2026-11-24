@@ -185,7 +185,11 @@
   function controls() {
     var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
     var search = el('input', { type: 'search', id: 'q', placeholder: 'Search name, category or chain', value: state.q, 'aria-label': 'Search the board' });
-    search.addEventListener('input', function () { state.q = search.value; writeHash(); render(); });
+    // Do not re-render mid-composition: rebuilding the input while an IME
+    // (e.g. Pinyin) composition is in progress cancels the composition.
+    // Filter once the composition finishes instead.
+    search.addEventListener('input', function (e) { if (e.isComposing) return; state.q = search.value; writeHash(); render(); });
+    search.addEventListener('compositionend', function () { state.q = search.value; writeHash(); render(); });
     var select = el('select', { id: 'category', 'aria-label': 'Filter by category' },
       el('option', { value: 'all', text: 'All categories' }),
       categories.map(function (c) { return el('option', { value: c, text: c, selected: c === state.category ? 'selected' : null }); })
@@ -393,6 +397,13 @@
   }
 
   function render() {
+    // Typing in the search box re-renders the whole page, which destroys the
+    // input the user is typing in. Remember whether it had focus and where
+    // the caret was, and hand both back to the rebuilt input afterwards.
+    var oldSearch = document.getElementById('q');
+    var searchHadFocus = oldSearch !== null && document.activeElement === oldSearch;
+    var caretStart = searchHadFocus ? oldSearch.selectionStart : null;
+    var caretEnd = searchHadFocus ? oldSearch.selectionEnd : null;
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
@@ -404,6 +415,13 @@
     app.setAttribute('aria-busy', 'false');
     if (!dialog.isConnected) app.appendChild(dialog);
     if (state.selected) openDetail(state.selected);
+    if (searchHadFocus) {
+      var nextSearch = document.getElementById('q');
+      if (nextSearch) {
+        nextSearch.focus();
+        try { nextSearch.setSelectionRange(caretStart, caretEnd); } catch (e) { /* caret restore is best-effort */ }
+      }
+    }
   }
 
   readHash();
