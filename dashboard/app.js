@@ -28,12 +28,15 @@
   }
   // The model in one function: the page recomputes a row from the snapshot figures and checks the
   // number board.json carries, so the page's code and the board's data are visibly the same arithmetic.
+  // Each row carries its own multiple: its category's median market-cap-to-TVL ratio among the
+  // snapshot's live-token protocols (at least 3 comparables), otherwise the global median, clamped.
   function impliedOf(row, model) {
+    var multiple = row.base_multiple !== null && row.base_multiple !== undefined ? row.base_multiple : model.base_multiple;
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
     var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
     var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
-    return Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthMult * maturity));
+    return Math.max(1, Math.round(row.tvl_usd * multiple * growthMult * maturity));
   }
 
   function el(tag, attrs) {
@@ -99,6 +102,7 @@
     var hold = holdDaysFor(p.age_days);
     return [
       { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
+      { text: 'Move $' + capital + ' of USDC into the fresh wallet and, if you are not on ' + chain + ' yet, bridge it there; keep a little of ' + chain + "'s gas token for fees.", cost: '$' + capital + ' of capital and about $2 of gas', time: '10 minutes' },
       { text: actionFor(p, capital, chain), cost: '$' + capital + ' of capital and about $' + (capital >= 150 ? 8 : 4) + ' of gas', time: '15 minutes to set up' },
       { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'about $2 of gas a week', time: '10 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
@@ -283,13 +287,17 @@
 
   function modelPanel() {
     var m = DATA.model;
+    var cal = DATA.calibration;
+    var globalLine = cal
+      ? 'The category multiple is the median market-cap-to-TVL ratio of that category\'s live-token protocols in this same snapshot (at least ' + m.min_comparables + ' comparables, or two that agree within an order of magnitude; otherwise the global median ' + cal.global_multiple + ' across ' + cal.global_comparables + ' live-token protocols), clamped to ' + m.multiple_floor + '–' + m.multiple_cap + '.'
+      : 'The category multiple is the median market-cap-to-TVL ratio of that category\'s live-token protocols in this same snapshot.';
     return el('section', { class: 'panel model' },
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )'
+        'implied = round( tvl_usd x category multiple x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )'
       ),
-      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: globalLine + ' TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
     );
   }
 
@@ -315,6 +323,7 @@
       el('h3', { text: 'Implied value' }),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
+        el('div', null, el('span', { text: 'Category multiple' }), el('b', { class: 'num', text: String(row.base_multiple) + (row.multiple_source === 'category' ? ' — median of ' + row.comparables + ' live ' + (row.category || 'Other') + ' tokens' : ' — global median of ' + row.comparables + ' live tokens') })),
         el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),

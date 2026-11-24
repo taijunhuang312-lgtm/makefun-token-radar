@@ -28,5 +28,11 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input <path to snapshot.js
 
 ## Status
 
-Phase 0: pipeline proof — the kit's starter running end to end. The value
-model, dashboard and farm plans will be rebuilt in later phases.
+Phase 0: pipeline proof — the kit's starter running end to end.
+Phase 1: category-calibrated implied-value model (radar-2) — the multiple for each
+category is the median market-cap-to-TVL ratio of that category's live-token protocols
+in the same snapshot (at least 3 comparables, or two that agree within an order of
+magnitude; otherwise the global median 0.2138), clamped to [0.01, 1.5]; see METHOD.md
+for the full formula and calibration table. Board, detail view and farm plans (7 steps)
+updated to match; screenshots retaken. The dashboard and farm plans will be rebuilt
+in later phases.
